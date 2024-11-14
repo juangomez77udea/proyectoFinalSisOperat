@@ -1,29 +1,42 @@
-# md5_hash.py
 import hashlib
-from multiprocessing import Pool
-import concurrent.futures
-from utils import read_file_in_blocks, parse_input
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
-def md5_hash(data):
-    # Codificar la entrada si es una cadena de texto
-    if isinstance(data, str):
-        data = data.encode()  # Convertir la cadena en bytes
+def md5_hash(chunk):
     hash_obj = hashlib.md5()
-    hash_obj.update(data)
-    return hash_obj.hexdigest()
+    hash_obj.update(chunk)
+    result = hash_obj.hexdigest()
 
-def md5_parallel(blocks):
-    with Pool() as pool:
-        return pool.map(md5_hash, blocks)
+    current_thread = threading.current_thread()
+    print(f'Hilo: {current_thread.name}, '
+          f'Identificador: {current_thread.ident}, '
+          f'Resultado del hash: {result[:8]}...')
+    return result
 
-def md5_concurrent(blocks):
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        return list(executor.map(md5_hash, blocks))
+def md5_parallel(input_data, num_threads):
+    if isinstance(input_data, str):
+        input_data = input_data.encode('utf-8')
 
-def md5_file_parallel(file_path):
-    blocks = read_file_in_blocks(file_path)
-    return md5_parallel(blocks)
+    chunk_size = max(1, len(input_data) // num_threads)
+    chunks = [input_data[i:i + chunk_size] for i in range(0, len(input_data), chunk_size)]
 
-def md5_file_concurrent(file_path):
-    blocks = read_file_in_blocks(file_path)
-    return md5_concurrent(blocks)
+    while len(chunks) < num_threads:
+        chunks.append(b'')
+
+    if len(chunks) > num_threads:
+        chunks[num_threads-1:] = [b''.join(chunks[num_threads-1:])]
+
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        results = list(executor.map(md5_hash, chunks))
+
+    return ''.join(results)
+
+def md5_concurrent(input_data, num_threads):
+    return md5_parallel(input_data, num_threads)
+
+def md5_file_parallel(file_path, num_threads):
+    with open(file_path, 'rb') as file:
+        return md5_parallel(file.read(), num_threads)
+
+def md5_file_concurrent(file_path, num_threads):
+    return md5_file_parallel(file_path, num_threads)

@@ -1,20 +1,29 @@
-# benchmark.py
-#mide el tiempo y la memoria utilizada al calcular el hash.
+import time
+import psutil
+import os
 
-import tracemalloc
-import timeit
+def benchmark(algorithm_func, input_data, num_threads):
+    # Medir el tiempo de ejecución
+    start_time = time.time()
 
-def benchmark(func, *args):
-    tracemalloc.start()
-    start_time = timeit.default_timer()
+    # Ejecutar la función del algoritmo con los datos de entrada y el número de hilos
+    result = algorithm_func(input_data, num_threads)
 
-    result = func(*args)
+    # Medir el tiempo de ejecución después de la ejecución del algoritmo
+    end_time = time.time()
 
-    elapsed_time = timeit.default_timer() - start_time
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    # Medición de otros parámetros
+    memory_usage = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)  # en MB
+    peak_memory = memory_usage  # Para este ejemplo, se puede hacer más detallado
+    cpu_usage = psutil.cpu_percent()
 
-    memory_usage = current / (1024 * 1024)  # MB
-    peak_memory_usage = peak / (1024 * 1024)  # MB
+    # Devolver las métricas
+    metrics = {
+        "result": result,
+        "time": end_time - start_time,
+        "memory": memory_usage,
+        "peak_memory": peak_memory,
+        "cpu": cpu_usage
+    }
 
-    return result, elapsed_time, memory_usage, peak_memory_usage
+    return metrics
