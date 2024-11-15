@@ -1,29 +1,113 @@
 import time
 import psutil
 import os
+import threading
+import multiprocessing
+import matplotlib.pyplot as plt
+import numpy as np
 
-def benchmark(algorithm_func, input_data, num_threads):
-    # Medir el tiempo de ejecución
+
+def measure_hash(algorithm_func, input_data):
+    return algorithm_func(input_data)
+
+
+def measure_time(algorithm_func, input_data):
     start_time = time.time()
+    algorithm_func(input_data)
+    return time.time() - start_time
 
-    # Ejecutar la función del algoritmo con los datos de entrada y el número de hilos
-    result = algorithm_func(input_data, num_threads)
 
-    # Medir el tiempo de ejecución después de la ejecución del algoritmo
-    end_time = time.time()
+def measure_memory():
+    return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
 
-    # Medición de otros parámetros
-    memory_usage = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)  # en MB
-    peak_memory = memory_usage  # Para este ejemplo, se puede hacer más detallado
-    cpu_usage = psutil.cpu_percent()
 
-    # Devolver las métricas
+def measure_cpu():
+    return psutil.cpu_percent(interval=0.1)
+
+
+def measure_disk():
+    return psutil.disk_io_counters().read_bytes / (1024 * 1024)
+
+
+def measure_wait_time():
+    return sum(thread.native_id for thread in threading.enumerate()) / 1000000
+
+
+class ResultThread(threading.Thread):
+    def __init__(self, target, args=()):
+        super().__init__(target=target, args=args)
+        self.result = None
+
+    def run(self):
+        self.result = self._target(*self._args)
+        print(f"Hilo: {self.name}, Identificador: {self.ident}, Función: {self._target.__name__}")
+
+
+def benchmark(algorithm_func, input_data):
+    result_thread = ResultThread(target=measure_hash, args=(algorithm_func, input_data))
+    time_thread = ResultThread(target=measure_time, args=(algorithm_func, input_data))
+    memory_thread = ResultThread(target=measure_memory)
+    cpu_thread = ResultThread(target=measure_cpu)
+    disk_thread = ResultThread(target=measure_disk)
+    wait_thread = ResultThread(target=measure_wait_time)
+
+    threads = [result_thread, time_thread, memory_thread, cpu_thread, disk_thread, wait_thread]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
     metrics = {
-        "result": result,
-        "time": end_time - start_time,
-        "memory": memory_usage,
-        "peak_memory": peak_memory,
-        "cpu": cpu_usage
+        "result": result_thread.result,
+        "time": time_thread.result,
+        "memory": memory_thread.result,
+        "cpu": cpu_thread.result,
+        "disk": disk_thread.result,
+        "wait_time": wait_thread.result
     }
 
     return metrics
+
+
+def visualize_parallel_execution(algorithm_func, input_data):
+    num_cores = multiprocessing.cpu_count()
+
+    def worker(core_id, result_queue):
+        start_time = time.time()
+        result = algorithm_func(input_data)
+        end_time = time.time()
+        result_queue.put((core_id, start_time, end_time))
+
+    result_queue = multiprocessing.Queue()
+    processes = []
+
+    for i in range(num_cores):
+        p = multiprocessing.Process(target=worker, args=(i, result_queue))
+        processes.append(p)
+        p.start()
+
+    for p in processes:
+        p.join()
+
+    results = []
+    while not result_queue.empty():
+        results.append(result_queue.get())
+
+    # Visualización
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    for core_id, start_time, end_time in results:
+        ax.barh(core_id, end_time - start_time, left=start_time, height=0.5, align='center')
+
+    ax.set_yticks(range(num_cores))
+    ax.set_yticklabels([f'Core {i}' for i in range(num_cores)])
+    ax.set_xlabel('Tiempo (segundos)')
+    ax.set_title('Ejecución Paralela por Núcleo')
+
+    plt.tight_layout()
+    plt.savefig('parallel_execution.png')
+    plt.close()
+
+    print(f"Gráfico de ejecución paralela guardado como 'parallel_execution.png'")
